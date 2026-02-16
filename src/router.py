@@ -6,7 +6,7 @@ Central orchestration layer for LLM Governance Gate.
 Deterministic Flow (no bypass):
 1) Receive input + create request_id
 2) Call LLM client (contained)
-3) Enforce minimal output structure
+3) Enforce minimal output structure (schemas.enforce_schema)
 4) Validate structure/policy (validator)
 5) Risk scan (risk_scan)
 6) Append-only log (log_store) for every branch
@@ -22,26 +22,13 @@ import uuid
 from .validator import validate_output
 from .risk_scan import scan_for_risk
 from .log_store import append_log
-from .schemas import GovernanceInput, GovernanceDecision, ValidationResult, RiskReport
-
-
-def _enforce_basic_schema(raw_output: Any) -> Dict[str, Any]:
-    """
-    Minimal schema enforcement. Keeps router independent of external libs.
-
-    Contract:
-    - Always returns a dict
-    - Must include "text" (string)
-    """
-    if raw_output is None:
-        return {"text": ""}
-
-    if isinstance(raw_output, dict):
-        text_val = raw_output.get("text", "")
-        # preserve original keys, but guarantee text is a string
-        return {**raw_output, "text": str(text_val)}
-
-    return {"text": str(raw_output)}
+from .schemas import (
+    GovernanceInput,
+    GovernanceDecision,
+    ValidationResult,
+    RiskReport,
+    enforce_schema,
+)
 
 
 class GovernanceRouter:
@@ -91,10 +78,10 @@ class GovernanceRouter:
                 reason="llm_call_failed",
                 metadata={"request_id": request_id, "user_id": request.user_id},
             )
-            return {**decision.__dict__, "request_id": request_id, "output": {"text": ""}}
+            return {**decision.__dict__, "request_id": request_id, "output": enforce_schema("")}
 
-        # --- Step 2: Basic schema enforcement
-        structured_output = _enforce_basic_schema(raw_output)
+        # --- Step 2: Enforce schema v1 (status/output/meta)
+        structured_output = enforce_schema(raw_output)
 
         # --- Step 3: Validate policy/structure
         try:
