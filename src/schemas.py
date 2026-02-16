@@ -1,75 +1,72 @@
 """
 schemas.py
 
-Schema definitions for LLM Governance Gate.
+Schema enforcement layer for LLM Governance Gate.
 
-Defines:
-- Input schema
-- Router output schema
-- Risk report schema
-- Validation result schema
+Purpose:
+- Normalize raw LLM output into a predictable dict
+- Enforce required fields + safe defaults
+- Prevent router/runtime crashes from malformed outputs
 
-These are lightweight structural contracts (no external deps).
+This is intentionally minimal v1:
+structure first, policy later.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 
-# ----------------------------
-# Input Schema
-# ----------------------------
+REQUIRED_TOP_LEVEL_KEYS = ("status", "output")
 
-@dataclass
-class GovernanceInput:
+
+def enforce_schema(raw_output: Any) -> Dict[str, Any]:
     """
-    Raw user request entering the governance gate.
+    Coerce raw LLM output into a structured dict with required keys.
+
+    Accepts:
+    - dict (preferred)
+    - str  (wrapped)
+    - any  (stringified and wrapped)
+
+    Returns:
+    {
+      "status": "ok" | "needs_review" | "schema_coerced",
+      "output": <content>,
+      "meta": { ... optional context ... }
+    }
     """
-    user_id: str
-    prompt: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    # 1) If already a dict, normalize keys
+    if isinstance(raw_output, dict):
+        structured: Dict[str, Any] = dict(raw_output)
 
+        # Ensure required keys exist
+        if "status" not in structured:
+            structured["status"] = "schema_coerced"
+        if "output" not in structured:
+            # try common alternatives, otherwise embed whole dict
+            if "response" in structured:
+                structured["output"] = structured.pop("response")
+            elif "result" in structured:
+                structured["output"] = structured.pop("result")
+            else:
+                structured["output"] = structured
 
-# ----------------------------
-# Validation Schema
-# ----------------------------
+        structured.setdefault("meta", {})
+        structured["meta"].setdefault("schema_version", "v1")
+        return structured
 
-@dataclass
-class ValidationResult:
-    """
-    Output of validator.py
-    """
-    is_valid: bool
-    errors: List[str] = field(default_factory=list)
+    # 2) If string, wrap it
+    if isinstance(raw_output, str):
+        return {
+            "status": "schema_coerced",
+            "output": raw_output.strip(),
+            "meta": {"schema_version": "v1", "coerced_from": "str"},
+        }
 
-
-# ----------------------------
-# Risk Scan Schema
-# ----------------------------
-
-@dataclass
-class RiskReport:
-    """
-    Output of risk_scan.py
-    """
-    risk_level: str  # "low", "medium", "high"
-    triggered_rules: List[str] = field(default_factory=list)
-    requires_human_review: bool = False
-
-
-# ----------------------------
-# Router Output Schema
-# ----------------------------
-
-@dataclass
-class GovernanceDecision:
-    """
-    Final router decision after validation + risk scan.
-    """
-    approved: bool
-    reason: str
-    risk_level: Optional[str] = None
-    validation_errors: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    # 3) Anything else: stringify + wrap
+    return {
+        "status": "schema_coerced",
+        "output": str(raw_output),
+        "meta": {"schema_version": "v1", "coerced_from": type(raw_output).__name__},
+    }
