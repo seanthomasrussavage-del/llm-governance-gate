@@ -25,6 +25,10 @@ from typing import Any, Dict, Optional
 from .router import route_request
 
 
+# ----------------------------
+# IO helpers
+# ----------------------------
+
 def _read_json(path: Optional[str]) -> Dict[str, Any]:
     if path:
         with open(path, "r", encoding="utf-8") as f:
@@ -47,6 +51,55 @@ def _write_json(data: Any, path: Optional[str]) -> None:
     sys.stdout.write("\n")
 
 
+# ----------------------------
+# Input normalization (fail-closed)
+# ----------------------------
+
+def _normalize_user_input(obj: Any) -> Dict[str, Any]:
+    """
+    Fail-closed normalization:
+    - Must be a dict
+    - Must contain "prompt" as a non-empty string (coerce if needed)
+    - Optional: "user_id" (str), "metadata" (dict)
+    Returns normalized dict or raises ValueError with reason.
+    """
+    if not isinstance(obj, dict):
+        raise ValueError("Input must be a JSON object (dict).")
+
+    # prompt
+    if "prompt" not in obj:
+        raise ValueError("Missing required field: 'prompt'.")
+    prompt = obj.get("prompt", "")
+    if prompt is None:
+        raise ValueError("Field 'prompt' cannot be null.")
+    if not isinstance(prompt, str):
+        prompt = str(prompt)
+
+    prompt = prompt.strip()
+    if not prompt:
+        raise ValueError("Field 'prompt' cannot be empty.")
+
+    # user_id
+    user_id = obj.get("user_id", "cli")
+    if user_id is None:
+        user_id = "cli"
+    if not isinstance(user_id, str):
+        user_id = str(user_id)
+
+    # metadata
+    metadata = obj.get("metadata", {})
+    if metadata is None:
+        metadata = {}
+    if not isinstance(metadata, dict):
+        raise ValueError("Field 'metadata' must be a JSON object (dict).")
+
+    return {"prompt": prompt, "user_id": user_id, "metadata": metadata}
+
+
+# ----------------------------
+# CLI
+# ----------------------------
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="llm-governance-gate",
@@ -65,22 +118,31 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    # Read input
     try:
-        user_input = _read_json(args.input)
+        raw_input = _read_json(args.input)
     except Exception as e:
         _write_json({"status": "error", "reason": f"Failed to read input JSON: {e}"}, args.output)
         return 2
 
-    if not isinstance(user_input, dict):
-        _write_json({"status": "blocked", "reason": "Input must be a JSON object (dict)."}, args.output)
+    # Normalize / fail-closed
+    try:
+        user_input = _normalize_user_input(raw_input)
+    except Exception as e:
+        _write_json({"status": "blocked", "reason": str(e)}, args.output)
         return 2
 
-    result = route_request(
-        user_input=user_input,
-        mode=args.mode,
-        human_approved=args.human_approve,
-        trace=args.trace,
-    )
+    # Single orchestration surface
+    try:
+        result = route_request(
+            user_input=user_input,
+            mode=args.mode,
+            human_approved=args.human_approve,
+            trace=args.trace,
+        )
+    except Exception as e:
+        _write_json({"status": "error", "reason": f"route_request failed: {type(e).__name__}: {e}"}, args.output)
+        return 1
 
     _write_json(result, args.output)
     return 0
