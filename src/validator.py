@@ -11,7 +11,8 @@ Aligned with schemas.py v1 contract.
 
 from __future__ import annotations
 
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+
 from .schemas import ValidationResult
 
 
@@ -29,38 +30,32 @@ def validate_output(structured_output: Dict[str, Any]) -> ValidationResult:
         "output": str | dict | list,
         "meta": dict
     }
-
-    Returns:
-        ValidationResult
     """
-
     errors: List[str] = []
 
-    # 1️⃣ Must be dict
+    # 1) Must be dict
     if not isinstance(structured_output, dict):
-        return ValidationResult(
-            is_valid=False,
-            errors=["Output is not a dictionary"]
-        )
+        return ValidationResult(is_valid=False, errors=["Output is not a dictionary"])
 
-    # 2️⃣ Required fields
+    # 2) Required fields
     for field in REQUIRED_FIELDS:
         if field not in structured_output:
             errors.append(f"Missing required field: {field}")
 
-    # 3️⃣ Backward compatibility guard
+    # 3) Backward compatibility guard
     if "text" in structured_output and "output" not in structured_output:
         errors.append("Legacy 'text' field present without 'output'")
 
-    # 4️⃣ Type enforcement
+    # 4) Type / null enforcement
     if "output" in structured_output and structured_output["output"] is None:
         errors.append("Field 'output' cannot be None")
 
-    # 5️⃣ Status sanity (optional but safe)
+    # 5) Status sanity
     if "status" in structured_output and not isinstance(structured_output["status"], str):
         errors.append("Field 'status' must be a string")
 
-    return ValidationResult(
-        is_valid=len(errors) == 0,
-        errors=errors
-    )
+    # 6) Meta sanity (optional but safe)
+    if "meta" in structured_output and not isinstance(structured_output["meta"], dict):
+        errors.append("Field 'meta' must be a dictionary")
+
+    return ValidationResult(is_valid=(len(errors) == 0), errors=errors)
