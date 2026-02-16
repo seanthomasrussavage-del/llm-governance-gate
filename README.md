@@ -33,3 +33,29 @@ Governance before intelligence.
 ---
 
 ## Architecture
+
+The system follows a hub-and-spoke governance model.
+
+All model interaction passes through a central orchestration layer
+("GovernanceRouter") before any output is surfaced or executed.
+
+Flow:
+
+User Input
+   ↓
+LLM Layer (abstracted client)
+   ↓
+Schema Enforcement
+   ↓
+Validation Gate
+   ↓
+Risk Scan
+   ↓
+Append-Only Logging
+   ↓
+Human Review
+   ↓
+Final Output
+
+No model-to-model direct communication is permitted.
+All execution paths are auditable.
