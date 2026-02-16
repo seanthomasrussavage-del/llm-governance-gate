@@ -1,12 +1,11 @@
 """
 schemas.py
 
-Schema enforcement layer for LLM Governance Gate.
+Schema layer for LLM Governance Gate.
 
 Purpose:
-- Normalize raw LLM output into a predictable dict
-- Enforce required fields + safe defaults
-- Prevent router/runtime crashes from malformed outputs
+- Provide minimal typed containers used by router + gates
+- Offer small, dependency-free coercion helpers for raw LLM output
 
 This is intentionally minimal v1:
 structure first, policy later.
@@ -14,8 +13,55 @@ structure first, policy later.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
+
+# ----------------------------
+# Core dataclasses (router API)
+# ----------------------------
+
+@dataclass
+class GovernanceInput:
+    user_id: str
+    prompt: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ValidationResult:
+    """
+    Returned by validator.validate_output(...)
+    """
+    is_valid: bool
+    errors: List[str] = field(default_factory=list)
+
+
+@dataclass
+class RiskReport:
+    """
+    Returned by risk_scan.scan_for_risk(...)
+    """
+    requires_human_review: bool
+    risk_level: str = "low"  # low | medium | high | critical
+    triggered_rules: List[str] = field(default_factory=list)
+
+
+@dataclass
+class GovernanceDecision:
+    """
+    Router return envelope (decision only; output is attached by router).
+    """
+    approved: bool
+    reason: str
+    risk_level: Optional[str] = None
+    validation_errors: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+# ----------------------------
+# Minimal coercion helper (v1)
+# ----------------------------
 
 REQUIRED_TOP_LEVEL_KEYS = ("status", "output")
 
@@ -23,11 +69,6 @@ REQUIRED_TOP_LEVEL_KEYS = ("status", "output")
 def enforce_schema(raw_output: Any) -> Dict[str, Any]:
     """
     Coerce raw LLM output into a structured dict with required keys.
-
-    Accepts:
-    - dict (preferred)
-    - str  (wrapped)
-    - any  (stringified and wrapped)
 
     Returns:
     {
@@ -40,15 +81,17 @@ def enforce_schema(raw_output: Any) -> Dict[str, Any]:
     if isinstance(raw_output, dict):
         structured: Dict[str, Any] = dict(raw_output)
 
-        # Ensure required keys exist
         if "status" not in structured:
             structured["status"] = "schema_coerced"
+
         if "output" not in structured:
             # try common alternatives, otherwise embed whole dict
             if "response" in structured:
                 structured["output"] = structured.pop("response")
             elif "result" in structured:
                 structured["output"] = structured.pop("result")
+            elif "text" in structured:
+                structured["output"] = structured.get("text", "")
             else:
                 structured["output"] = structured
 
