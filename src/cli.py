@@ -9,9 +9,10 @@ Run examples:
   python -m src --mode demo --input input.json --output out.json
 
 Notes:
-- This CLI is intentionally minimal and dependency-free.
-- It supports stdin or a JSON file as input.
-- It calls router.route_request() as the single orchestration surface.
+- Minimal, dependency-free.
+- Reads JSON from stdin or --input.
+- Writes JSON to stdout or --output.
+- Calls router.route_request() as the single orchestration surface.
 """
 
 from __future__ import annotations
@@ -29,7 +30,6 @@ def _read_json(path: Optional[str]) -> Dict[str, Any]:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    # stdin fallback
     raw = sys.stdin.read().strip()
     if not raw:
         return {}
@@ -53,35 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Governance-first orchestration gate for LLM workflows.",
     )
 
-    p.add_argument(
-        "--mode",
-        default="demo",
-        choices=["demo"],
-        help="Routing mode (demo for now; extend later).",
-    )
-
-    p.add_argument(
-        "--input",
-        help="Path to JSON input file. If omitted, reads JSON from stdin.",
-    )
-
-    p.add_argument(
-        "--output",
-        help="Path to write JSON output. If omitted, prints to stdout.",
-    )
-
-    p.add_argument(
-        "--human-approve",
-        action="store_true",
-        help="Simulate human approval gate as approved (for local runs).",
-    )
-
-    p.add_argument(
-        "--trace",
-        action="store_true",
-        help="Include extra trace metadata in the returned output.",
-    )
-
+    p.add_argument("--mode", default="demo", choices=["demo"])
+    p.add_argument("--input", help="Path to JSON input file. If omitted, reads JSON from stdin.")
+    p.add_argument("--output", help="Path to write JSON output. If omitted, prints to stdout.")
+    p.add_argument("--human-approve", action="store_true", help="Simulate human approval gate (local runs).")
+    p.add_argument("--trace", action="store_true", help="Include extra trace metadata in returned output.")
     return p
 
 
@@ -95,12 +71,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         _write_json({"status": "error", "reason": f"Failed to read input JSON: {e}"}, args.output)
         return 2
 
-    # Minimal contract: router expects dict
     if not isinstance(user_input, dict):
         _write_json({"status": "blocked", "reason": "Input must be a JSON object (dict)."}, args.output)
         return 2
 
-    # Pass through the router as the ONLY entrypoint.
     result = route_request(
         user_input=user_input,
         mode=args.mode,
