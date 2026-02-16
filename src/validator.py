@@ -5,19 +5,33 @@ Responsible for:
 - Enforcing required fields
 - Ensuring structured schema compliance
 - Blocking malformed outputs
+
+Aligned with schemas.py v1 contract.
 """
+
+from __future__ import annotations
 
 from typing import Dict, Any, List
 from schemas import ValidationResult
 
 
-REQUIRED_FIELDS = ["text"]
+# Required top-level keys for structured output
+REQUIRED_FIELDS = ["output"]
 
 
 def validate_output(structured_output: Dict[str, Any]) -> ValidationResult:
     """
     Validates structured LLM output against required fields and structure.
-    Returns a ValidationResult dataclass.
+
+    Expected structure (v1):
+    {
+        "status": str,
+        "output": str | dict | list,
+        "meta": dict
+    }
+
+    Returns:
+        ValidationResult
     """
 
     errors: List[str] = []
@@ -34,15 +48,20 @@ def validate_output(structured_output: Dict[str, Any]) -> ValidationResult:
         if field not in structured_output:
             errors.append(f"Missing required field: {field}")
 
-    # 3️⃣ Type enforcement
-    if "text" in structured_output and not isinstance(structured_output["text"], str):
-        errors.append("Field 'text' must be a string")
+    # 3️⃣ Backward compatibility:
+    # If legacy "text" exists but "output" does not, treat as error (router should coerce earlier)
+    if "text" in structured_output and "output" not in structured_output:
+        errors.append("Legacy 'text' field present without 'output'")
 
-    # 4️⃣ Empty response block
-    if "text" in structured_output and structured_output["text"].strip() == "":
-        errors.append("Field 'text' cannot be empty")
+    # 4️⃣ Type enforcement
+    if "output" in structured_output:
+        if structured_output["output"] is None:
+            errors.append("Field 'output' cannot be None")
 
-    # Final result
+    # 5️⃣ Status sanity (optional but safe)
+    if "status" in structured_output and not isinstance(structured_output["status"], str):
+        errors.append("Field 'status' must be a string")
+
     return ValidationResult(
         is_valid=len(errors) == 0,
         errors=errors
