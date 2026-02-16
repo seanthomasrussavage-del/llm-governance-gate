@@ -12,7 +12,7 @@ Aligned with schemas.py v1 contract.
 from __future__ import annotations
 
 from typing import Dict, Any, List
-from schemas import ValidationResult
+from .schemas import ValidationResult
 
 
 # Required top-level keys for structured output
@@ -48,15 +48,13 @@ def validate_output(structured_output: Dict[str, Any]) -> ValidationResult:
         if field not in structured_output:
             errors.append(f"Missing required field: {field}")
 
-    # 3️⃣ Backward compatibility:
-    # If legacy "text" exists but "output" does not, treat as error (router should coerce earlier)
+    # 3️⃣ Backward compatibility guard
     if "text" in structured_output and "output" not in structured_output:
         errors.append("Legacy 'text' field present without 'output'")
 
     # 4️⃣ Type enforcement
-    if "output" in structured_output:
-        if structured_output["output"] is None:
-            errors.append("Field 'output' cannot be None")
+    if "output" in structured_output and structured_output["output"] is None:
+        errors.append("Field 'output' cannot be None")
 
     # 5️⃣ Status sanity (optional but safe)
     if "status" in structured_output and not isinstance(structured_output["status"], str):
